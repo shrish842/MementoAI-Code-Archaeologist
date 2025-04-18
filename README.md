@@ -24,17 +24,6 @@
 
 ---
 
-## 🚀 Live Demo / Screenshot
-
-*(Ideally, replace this section with an animated GIF or a clear screenshot of the app in action)*
-
-[![](./path/to/your/demo.gif)](./path/to/your/demo.gif) <!-- Example embedding a GIF -->
-*Caption: Asking MementoAI about session refactoring in the 'requests' library.*
-
-**[Link to Live Demo (if deployed)]** <!-- Optional: Add link if you deploy it -->
-
----
-
 ## ⚙️ Technology Stack
 
 *   **Backend & Core Logic:** Python 3
