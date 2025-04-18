@@ -1,0 +1,192 @@
+import streamlit as st
+import chromadb
+from sentence_transformers import SentenceTransformer
+import openai # Keep import for potential future use / initial key check
+import os
+import time
+
+# --- Configuration ---
+# API Key Handling (Best Practice: Use Environment Variables or Streamlit Secrets)
+# For local hackathon testing:
+try:
+    # Try getting key from environment variable first (won't be set locally unless you do)
+    openai.api_key = os.environ["OPENAI_API_KEY"]
+    st.sidebar.success("OpenAI API Key loaded from Environment Variable.")
+except KeyError:
+    # Fallback: Manual entry (REMOVE BEFORE SHARING/COMMITTING)
+    # It's okay to leave your key here for local running, the call is disabled later.
+    openai_api_key_manual = "sk-proj-..." # <-- PASTE YOUR sk-XXXX KEY HERE (but it won't be used for generation)
+    if openai_api_key_manual and openai_api_key_manual != "sk-proj-...":
+         openai.api_key = openai_api_key_manual
+         # st.sidebar.warning("OpenAI API Key loaded manually from script.") # Optional: Show confirmation
+    else:
+         # Placeholder if no key is found anywhere
+         openai.api_key = None # Set to None if not found
+         st.sidebar.error("OpenAI API Key not set.")
+
+
+# Database and Model Configuration
+SCRIPT_DIR = os.path.dirname(__file__) # Get directory where script is running
+CHROMA_DB_PATH = os.path.join(SCRIPT_DIR, "chroma_db")
+COLLECTION_NAME = "requests_commits"
+EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2' # Must match the model used for embedding
+
+# --- Load Models and DB (Cached) ---
+
+@st.cache_resource # Use Streamlit's caching for resources
+def load_resources(model_name, db_path, collection_name):
+    """Loads the embedding model and connects to ChromaDB."""
+    st.write("Loading resources...") # Show status in main area during load
+    print("Attempting to load resources...")
+    model = None
+    collection = None
+    try:
+        t_start = time.time()
+        model = SentenceTransformer(model_name)
+        print(f"Embedding model '{model_name}' loaded ({time.time() - t_start:.2f}s). Device: {model.device}")
+    except Exception as e:
+        st.error(f"Fatal Error: Could not load embedding model '{model_name}'. Ensure it's installed and files are accessible. Error: {e}")
+        st.stop() # Stop the app if model fails
+
+    try:
+        t_start = time.time()
+        chroma_client = chromadb.PersistentClient(path=db_path)
+        # Try getting the collection, raise error if it doesn't exist
+        collection = chroma_client.get_collection(name=collection_name)
+        print(f"Connected to ChromaDB collection '{collection_name}' ({time.time() - t_start:.2f}s). Items: {collection.count()}")
+    except Exception as e:
+        # More specific error handling for collection not found possible with newer chromadb versions
+        st.error(f"Fatal Error: Could not connect to ChromaDB collection '{collection_name}' at '{db_path}'. Error: {e}")
+        st.error("Ensure the './chroma_db' folder exists and contains valid data.")
+        st.error("Try running 'embed_commits.py' again.")
+        st.stop() # Stop the app if DB fails
+
+    st.write("Resources loaded successfully!") # Confirmation message
+    time.sleep(1) # Brief pause so user sees the message
+    st.rerun() # Rerun to clear the loading messages
+
+# Load resources when the script starts
+# Pass config variables to the cached function
+embedding_model, chroma_collection = load_resources(EMBEDDING_MODEL_NAME, CHROMA_DB_PATH, COLLECTION_NAME)
+
+# --- Streamlit App Interface ---
+
+st.set_page_config(layout="wide", page_title="MementoAI - Codebase Archaeologist")
+st.title("🏛️ MementoAI: Codebase Archaeologist")
+st.markdown("Ask questions about the **Requests** library's commit history using semantic search.")
+
+# Input box for user question
+user_question = st.text_input(
+    "Ask about the code's history:",
+    placeholder="e.g., Why was the session object refactored? Fixes for CVEs? Urllib3 updates?"
+)
+
+if user_question:
+    # Basic check if resources loaded (should always be true if we got here due to st.stop() above)
+    if not embedding_model or not chroma_collection:
+         st.error("Critical resources failed to load. Please check terminal logs and restart.")
+    else:
+        st.markdown("---") # Separator
+        st.subheader("⏳ Processing your question...")
+
+        # --- Step 1: Embed the Question & Search Relevant Commits ---
+        relevant_commits_docs = []
+        relevant_commits_metas = []
+        relevant_commits_distances = []
+
+        with st.spinner("Embedding question and searching commit history..."):
+            try:
+                # 1. Embed the user's question
+                t_start = time.time()
+                question_embedding = embedding_model.encode([user_question])[0].tolist()
+                print(f"Question embedded in {time.time() - t_start:.2f}s")
+
+                # 2. Query ChromaDB for relevant commits
+                t_start = time.time()
+                results = chroma_collection.query(
+                    query_embeddings=[question_embedding],
+                    n_results=5, # Number of relevant commits to retrieve
+                    include=['documents', 'metadatas', 'distances'] # Include text, metadata, and similarity score
+                )
+                print(f"ChromaDB query took {time.time() - t_start:.2f}s")
+
+                # Safely extract results
+                relevant_commits_docs = results.get('documents', [[]])[0]
+                relevant_commits_metas = results.get('metadatas', [[]])[0]
+                relevant_commits_distances = results.get('distances', [[]])[0]
+
+            except Exception as e:
+                st.error(f"An error occurred during search: {e}")
+                st.error("Could not retrieve commits from the database.")
+                # Stop further processing for this query if search fails
+                relevant_commits_docs = [] # Ensure lists are empty
+
+        # --- Step 2: Display the Retrieved Commits (Core Functionality) ---
+        st.subheader("🔍 Relevant Commits Found")
+        if relevant_commits_docs:
+             st.write(f"Found {len(relevant_commits_docs)} commits most semantically related to your question:")
+             for i, (doc, meta, dist) in enumerate(zip(relevant_commits_docs, relevant_commits_metas, relevant_commits_distances)):
+                  # Calculate similarity score (higher is better) from distance (lower is better)
+                  # Cosine distance ranges from 0 (identical) to 2 (opposite)
+                  # Similarity = 1 - cosine distance (ranges roughly 1 to -1, typically 1 to 0 for similar docs)
+                  similarity_score = 1 - dist
+
+                  # Format timestamp into a readable date
+                  commit_date = "Date Unknown"
+                  timestamp = meta.get('timestamp')
+                  if timestamp:
+                      try:
+                           # Use UTC for consistency as git timestamps are often UTC
+                           commit_date = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(timestamp))
+                      except (TypeError, ValueError):
+                           commit_date = "Invalid Date" # Handle potential bad timestamps
+
+                  # Display each commit nicely
+                  st.markdown(f"**{i+1}. Similarity: {similarity_score:.4f}**")
+                  st.markdown(f"*Author: {meta.get('author', 'N/A')} | Date: {commit_date}*")
+                  st.text_area(
+                      f"Commit Message {i+1}",
+                      doc,
+                      height=120, # Slightly taller text area
+                      key=f"commit_text_{i}" # Unique key for Streamlit
+                  )
+                  # Optional: Add link to commit on GitHub if hash is available
+                  commit_hash = meta.get('hash') or ids[i] # Get hash from meta or main id list if available
+                  if commit_hash:
+                       st.markdown(f"[View on GitHub (requests repo)](https://github.com/psf/requests/commit/{commit_hash})", unsafe_allow_html=True)
+                  st.markdown("---") # Separator between commits
+        else:
+             # Handle case where the query returned no results
+             st.warning("No relevant commits found matching your query in the database.")
+
+
+        # --- Step 3: AI Summarization (Disabled Notification) ---
+        st.markdown("---")
+        st.info("""
+            ℹ️ **AI Summarization Note:**
+            Generating a concise summary based on these commits using an AI assistant (like GPT)
+            is currently unavailable, likely due to API access limitations (e.g., quota exceeded).
+
+            Please review the relevant commit messages found above for context. The core semantic search functionality is working.
+        """)
+
+        # --- Commented out OpenAI Call Block ---
+        # with st.spinner("🧠 Asking the AI Assistant (LLM) for an answer..."):
+        #     # Prepare context and prompt for LLM (if API was working)
+        #     # ... (prompt preparation code would go here) ...
+        #
+        #     # Call OpenAI API (if API was working)
+        #     # try:
+        #     #     response = openai.chat.completions.create(...)
+        #     #     ai_answer = response.choices[0].message.content
+        #     # except Exception as e:
+        #     #     ai_answer = f"Error calling AI Assistant: {e}"
+        #     #
+        #     # st.subheader("💡 Answer from MementoAI")
+        #     # st.markdown(ai_answer)
+        # --- End of Commented Block ---
+
+
+# Footer
+st.markdown("---")
+st.markdown("MementoAI | Hackathon Project | Data Source: `psf/requests` Git history")
