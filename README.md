@@ -129,10 +129,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 👥 Team / Author
-
-*   **[Your Team Name / Your Name]**
-*   Hackathon: [Name of Hackathon]
-*   Members: [List Member Names - Optional]
-
----
