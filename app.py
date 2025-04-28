@@ -19,7 +19,7 @@ try:
     st.sidebar.success("Google API Key loaded from Environment Variable.")
 except KeyError:
     # Fallback: Manual paste (REMOVE BEFORE SHARING/COMMITTING)
-    google_api_key_manual = "AIzaSyAYpy4wCvpMmkcQavQ0QClny3l_D4jrwgs" # <-- PASTE YOUR GEMINI KEY HERE
+    google_api_key_manual = "YOUR_OPEN_API_KEY_GOES_HERE" # <-- PASTE YOUR GEMINI KEY HERE
     if google_api_key_manual and google_api_key_manual != "YOUR_GOOGLE_API_KEY_GOES_HERE":
          try:
             genai.configure(api_key=google_api_key_manual)
