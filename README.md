@@ -24,13 +24,13 @@
 *   **🌐 Web Interface:** Simple and interactive UI built with Streamlit.
 *   **🔧 Modular Design:** Easily adaptable to different repositories.
 
-## 🚀 Live Demo / Screenshot
+## 🚀 Live Demo
 
-[![MementoAI Demo GIF](https://your-image-hosting-service.com/link/to/your/mementoai_demo.gif)](https://your-image-hosting-service.com/link/to/your/mementoai_demo.gif) <!-- Link the GIF to itself -->
-*Caption: MementoAI retrieves relevant commits and code diffs for a natural language query about the 'requests' library.*
+**Click the image below to watch a video demonstration of MementoAI on Loom:**
 
-**[Link to Live Demo (if deployed)]** <!-- Optional: Replace with your deployed app URL if you have one -->
+[![MementoAI Demo Video Thumbnail](./assets/loom_thumbnail.png)](https://www.loom.com/share/7e53cd79f26a44469cceb3da4e1994b8?sid=f93f02a6-3630-436b-9500-4bed8818aeb6)
 
+*Caption: This video shows MementoAI retrieving relevant commits and code changes for a natural language query about the 'requests' library.*
 
 ## ⚙️ Technology Stack
 
