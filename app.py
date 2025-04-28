@@ -1,169 +1,313 @@
 import streamlit as st
 import chromadb
 from sentence_transformers import SentenceTransformer
-import openai # OpenAI library
+import google.generativeai as genai # Import Google Gemini library
 import os
 import time
+import subprocess # Needed for running git show
 
 # --- Configuration ---
-# Use environment variable for API key for better security
-# In a real app, use .env files or secrets management
-# For hackathon quick start, you can paste your key here temporarily,
-# BUT REMOVE IT BEFORE SHARING/COMMITTING CODE
+st.set_page_config(layout="wide", page_title="MementoAI - Code Archaeologist")
+
+# --- Google API Key Handling ---
+# Best Practice: Use Environment Variables (e.g., GOOGLE_API_KEY)
+# For hackathon quick start:
 try:
     # Try getting key from environment variable first
-    openai.api_key = os.environ["OPENAI_API_KEY"]
+    google_api_key = os.environ["GOOGLE_API_KEY"]
+    genai.configure(api_key=google_api_key)
+    st.sidebar.success("Google API Key loaded from Environment Variable.")
 except KeyError:
-    # If env var not set, fallback to Streamlit secrets or manual paste
-    # For local running without Streamlit Cloud secrets:
-    openai_api_key_manual = "YOUR_OPENAI_API_KEY_GOES_HERE" # <-- PASTE YOUR sk-XXXX KEY HERE TEMPORARILY (REMOVE LATER)
-    if openai_api_key_manual:
-         openai.api_key = openai_api_key_manual
+    # Fallback: Manual paste (REMOVE BEFORE SHARING/COMMITTING)
+    google_api_key_manual = "AIzaSyAYpy4wCvpMmkcQavQ0QClny3l_D4jrwgs" # <-- PASTE YOUR GEMINI KEY HERE
+    if google_api_key_manual and google_api_key_manual != "YOUR_GOOGLE_API_KEY_GOES_HERE":
+         try:
+            genai.configure(api_key=google_api_key_manual)
+            # st.sidebar.warning("Google API Key loaded manually from script.")
+         except Exception as e:
+            st.sidebar.error(f"Invalid Google API Key format? Error: {e}")
+            genai_configured = False # Flag that Gemini is not ready
     else:
          # Placeholder if no key is found anywhere
-         openai.api_key = "YOUR_API_KEY_NOT_SET"
-         print("Warning: OPENAI_API_KEY environment variable or manual key not set.")
+         st.sidebar.error("Google API key not set. Add GOOGLE_API_KEY env var or paste in script.")
+         genai_configured = False # Flag that Gemini is not ready
 
-
-CHROMA_DB_PATH = os.path.join(os.path.dirname(__file__), "chroma_db")
-COLLECTION_NAME = "requests_commits"
+# --- Other Configuration ---
+SCRIPT_DIR = os.path.dirname(__file__)
+CHROMA_DB_PATH = os.path.join(SCRIPT_DIR, "chroma_db")
+COLLECTION_NAME = "requests_commits" # Should match embed_commits.py
 MODEL_NAME = 'all-MiniLM-L6-v2' # Must match the model used for embedding
-LLM_MODEL = "gpt-3.5-turbo-0125" # Or "gpt-4-turbo", etc.
+GEMINI_MODEL_NAME = "gemini-1.5-pro-latest" # Or other compatible free tier models
+
+# --- IMPORTANT: Define path to the target repo for git show ---
+# This MUST point to the cloned 'requests' repo (or whichever repo was indexed)
+REPO_PATH_FOR_GIT_COMMANDS = "C:/Users/agraw/OneDrive/Desktop/CodeBase_Archaelogist/requests"
 
 # --- Load Models and DB (Cache to avoid reloading on every interaction) ---
 
 @st.cache_resource # Use Streamlit's caching for resources
-def load_resources():
+def load_resources(model_name, db_path, collection_name):
     """Loads the embedding model and connects to ChromaDB."""
-    print("Loading resources...")
-    start_time = time.time()
+    # REMOVED: st.write("Loading embedding model & database...") # Remove UI element from cached function
+    print("Attempting to load resources...") # Keep console log
+    model = None
+    collection = None
     try:
-        model = SentenceTransformer(MODEL_NAME)
-        print(f"Embedding model loaded ({time.time() - start_time:.2f}s). Device: {model.device}")
+        t_start = time.time()
+        model = SentenceTransformer(model_name)
+        print(f"Embedding model '{model_name}' loaded ({time.time() - t_start:.2f}s). Device: {model.device}")
     except Exception as e:
-        st.error(f"Error loading embedding model '{MODEL_NAME}': {e}")
-        return None, None
+        st.error(f"Fatal Error: Could not load embedding model '{model_name}'. Ensure it's installed. Error: {e}")
+        st.stop()
 
     try:
-        chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-        collection = chroma_client.get_collection(name=COLLECTION_NAME)
-        print(f"Connected to ChromaDB collection '{COLLECTION_NAME}'. Items: {collection.count()}")
-        return model, collection
-    except Exception as e:
-        st.error(f"Error connecting to ChromaDB collection '{COLLECTION_NAME}' at '{CHROMA_DB_PATH}': {e}")
-        st.error("Ensure './chroma_db' folder exists and 'embed_commits.py' ran successfully.")
-        return model, None # Return model even if DB fails, maybe show partial error
+        t_start = time.time()
+        # Check if DB path exists before initializing client
+        if not os.path.isdir(db_path):
+             st.error(f"Fatal Error: ChromaDB path not found: '{db_path}'.")
+             st.error("Please run 'embed_commits.py' first to create the database.")
+             st.stop()
 
-# Load resources when the script runs
-embedding_model, chroma_collection = load_resources()
+        chroma_client = chromadb.PersistentClient(path=db_path)
+        collection = chroma_client.get_collection(name=collection_name)
+        print(f"Connected to ChromaDB collection '{collection_name}' ({time.time() - t_start:.2f}s). Items: {collection.count()}")
+    except Exception as e:
+        st.error(f"Fatal Error: Could not connect to ChromaDB collection '{collection_name}' at '{db_path}'. Error: {e}")
+        st.error("Ensure './chroma_db' folder exists and contains valid data generated by 'embed_commits.py'.")
+        st.stop()
+
+    # REMOVED: st.write("Resources loaded successfully!") # Remove UI element
+    # REMOVED: time.sleep(0.5) # Remove pause
+    # REMOVED: st.rerun() # REMOVE THIS LINE - THIS WAS CAUSING THE LOOP!
+
+    # Just return the loaded resources
+    return model, collection
+
+# Load resources when the script starts (this part remains the same)
+embedding_model, chroma_collection = load_resources(MODEL_NAME, CHROMA_DB_PATH, COLLECTION_NAME)
+
+# --- Function to Fetch Git Diff ---
+def get_git_diff(commit_hash, repo_path):
+    """Fetches the code diff for a given commit hash."""
+    if not commit_hash:
+        return "Error: No commit hash provided."
+    if not os.path.isdir(repo_path):
+        return f"Error: Target repository path not found: {repo_path}"
+
+    try:
+        # Use 'git show --patch' or 'git diff <hash>^! --'
+        # 'git show' includes commit info + patch
+        # 'git diff <hash>^!' shows only the changes introduced by the commit vs its first parent
+        diff_command = ["git", "show", "--patch", "--pretty=format:", commit_hash] # Format removes commit info header
+
+        diff_result = subprocess.run(
+            diff_command,
+            cwd=repo_path, # Run command inside the target repository
+            capture_output=True,
+            text=True,
+            check=False, # Don't raise error on failure, check returncode
+            encoding='utf-8',
+            errors='replace'
+        )
+        if diff_result.returncode == 0:
+            # Simple way to get diff: return stdout directly (might include initial newline)
+            # More robust parsing could find the first 'diff --git' line if needed
+             diff_text = diff_result.stdout.strip()
+             if not diff_text:
+                  return "(No code changes detected in this commit)" # E.g., merge commits without file changes
+             return diff_text
+        else:
+            error_message = diff_result.stderr.strip()
+            return f"Error getting diff (Code: {diff_result.returncode}): {error_message if error_message else '(No stderr output)'}"
+    except FileNotFoundError:
+        return "Error: 'git' command not found. Is Git installed and in PATH?"
+    except Exception as e:
+        return f"Exception getting diff: {e}"
 
 # --- Streamlit App Interface ---
 
-st.set_page_config(layout="wide") # Use wider layout
-st.title(" MementoAI 🏛️")
-st.markdown("Ask questions about the **Requests** library's commit history.")
+
+st.title("🏛️ MementoAI: Codebase Archaeologist")
+st.markdown("Ask questions about the **Requests** library's commit history using semantic search.")
 
 # Input box for user question
-user_question = st.text_input("Your question:", placeholder="e.g., Why was the session object refactored?")
+user_question = st.text_input(
+    "Ask about the code's history:",
+    placeholder="e.g., Why was the session object refactored? Fixes for CVEs? Urllib3 updates?"
+)
 
-if user_question and embedding_model and chroma_collection:
-    if openai.api_key == "YOUR_API_KEY_NOT_SET" or not openai.api_key:
-         st.error("OpenAI API key not set. Please add it to the script or environment variable.")
+if user_question:
+    if not embedding_model or not chroma_collection:
+         st.error("Critical resources failed to load. Please check logs and restart.")
     else:
-        st.markdown("---") # Separator
-        st.subheader("Processing your question...")
+        st.markdown("---")
+        st.subheader("⏳ Processing your question...")
 
-        with st.spinner("Finding relevant commits..."):
-            # 1. Embed the user's question
-            start_time = time.time()
-            question_embedding = embedding_model.encode([user_question])[0].tolist()
-            # print(f"Question embedded in {time.time() - start_time:.2f}s")
+        # --- Step 1: Embed Question & Search Relevant Commits ---
+        relevant_commits_data = [] # Store dicts with all info
 
-            # 2. Query ChromaDB for relevant commits
+        with st.spinner("Embedding question and searching commit history..."):
             try:
-                # Query for top 5 most similar commits
+                t_start = time.time()
+                question_embedding = embedding_model.encode([user_question])[0].tolist()
+                print(f"Question embedded in {time.time() - t_start:.2f}s")
+
+                t_start = time.time()
                 results = chroma_collection.query(
                     query_embeddings=[question_embedding],
-                    n_results=5, # Number of relevant commits to retrieve
-                    include=['documents', 'metadatas', 'distances'] # Include text, metadata, and similarity score
+                    n_results=5, # Number of relevant commits
+                    include=['documents', 'metadatas', 'distances']
                 )
-                # print(f"ChromaDB query took {time.time() - start_time:.2f}s")
+                print(f"ChromaDB query took {time.time() - t_start:.2f}s")
 
-                relevant_commits_docs = results.get('documents', [[]])[0]
-                relevant_commits_metas = results.get('metadatas', [[]])[0]
-                relevant_commits_distances = results.get('distances', [[]])[0]
+                # Process results immediately
+                if results and results.get('ids', [[]])[0]:
+                     ids = results.get('ids')[0]
+                     docs = results.get('documents')[0]
+                     metas = results.get('metadatas')[0]
+                     dists = results.get('distances')[0]
 
-                if not relevant_commits_docs:
-                     st.warning("Could not find relevant commits for your question.")
-                     st.stop() # Stop execution for this run if nothing found
+                     for id_val, doc, meta, dist in zip(ids, docs, metas, dists):
+                          relevant_commits_data.append({
+                               "hash": id_val,
+                               "message": doc,
+                               "metadata": meta,
+                               "distance": dist,
+                               "diff": "Fetching..." # Placeholder for diff
+                          })
+                else:
+                     st.warning("Could not find relevant commits matching your query.")
+                     st.stop()
 
             except Exception as e:
-                st.error(f"Error querying ChromaDB: {e}")
-                st.stop() # Stop if DB query fails
+                st.error(f"An error occurred during search: {e}")
+                st.stop()
 
-        # Display retrieved commits (optional, good for debugging/transparency)
-        with st.expander("🔍 View Relevant Commits Found"):
-             if relevant_commits_docs:
-                  for i, (doc, meta, dist) in enumerate(zip(relevant_commits_docs, relevant_commits_metas, relevant_commits_distances)):
-                       st.markdown(f"**Commit {i+1} (Distance: {dist:.4f})**")
-                       st.markdown(f"*Author: {meta.get('author', 'N/A')} | Timestamp: {time.strftime('%Y-%m-%d', time.gmtime(meta.get('timestamp', 0)))}*")
-                       st.text_area(f"Commit Message {i+1}", doc, height=100, key=f"commit_text_{i}")
-                       st.markdown("---")
-             else:
-                  st.write("No relevant commits found.")
+        # --- Step 2: Fetch Diffs for Relevant Commits ---
+        with st.spinner("Fetching code changes (diffs) for relevant commits..."):
+             for commit_data in relevant_commits_data:
+                  commit_data["diff"] = get_git_diff(commit_data["hash"], REPO_PATH_FOR_GIT_COMMANDS)
 
 
-        with st.spinner("🧠 Asking the AI Assistant (LLM) for an answer..."):
-            # 3. Prepare context and prompt for LLM
-            context = ""
-            for i, doc in enumerate(relevant_commits_docs):
-                context += f"Commit {i+1}:\n{doc}\n\n" # Combine retrieved commit messages
+        # --- Step 3: Display Retrieved Commits & Diffs ---
+        st.subheader("🔍 Relevant History Found")
+        if relevant_commits_data:
+            st.write(f"Found {len(relevant_commits_data)} commits related to your question:")
+            for i, commit_data in enumerate(relevant_commits_data):
+                similarity_score = 1 - commit_data["distance"]
+                meta = commit_data["metadata"]
+                commit_date = "Date Unknown"
+                timestamp = meta.get('timestamp')
+                if timestamp:
+                    try:
+                        commit_date = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(timestamp))
+                    except (TypeError, ValueError):
+                        commit_date = "Invalid Date"
 
-            prompt = f"""
-            You are an AI assistant acting as a "Codebase Archaeologist".
-            Your task is to answer the user's question based *only* on the provided commit message context from the 'requests' library history.
-            Do not make assumptions or use external knowledge.
-            If the context does not contain enough information to answer the question, explicitly state that.
-            Be concise and helpful.
+                st.markdown(f"**{i+1}. Commit:** `{commit_data['hash'][:7]}` (Similarity: {similarity_score:.4f})")
+                st.markdown(f"*Author: {meta.get('author', 'N/A')} | Date: {commit_date}*")
 
-            Provided Context (Commit Messages):
-            ---
-            {context}
-            ---
-
-            User Question: {user_question}
-
-            Answer:
-            """
-
-            # 4. Call OpenAI API
-            start_time = time.time()
-            try:
-                response = openai.chat.completions.create(
-                    model=LLM_MODEL,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful AI assistant analyzing Git commit history."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.2, # Lower temperature for more factual answers
-                    max_tokens=300 # Limit response length
+                # Display Commit Message
+                st.text_area(
+                    f"Commit Message {i+1}",
+                    commit_data["message"],
+                    height=100,
+                    key=f"msg_text_{i}"
                 )
-                ai_answer = response.choices[0].message.content
-                # print(f"OpenAI call took {time.time() - start_time:.2f}s")
 
-            except Exception as e:
-                st.error(f"Error calling OpenAI API: {e}")
-                st.error("Check your API key and OpenAI account status.")
-                ai_answer = "Error: Could not get answer from AI Assistant."
+                # Display Diff in an Expander
+                with st.expander(f"View Code Changes (Diff) for Commit {i+1}"):
+                     st.code(commit_data["diff"], language='diff', line_numbers=False)
+
+                # GitHub Link
+                st.markdown(f"[View full commit on GitHub (requests repo)](https://github.com/psf/requests/commit/{commit_data['hash']})", unsafe_allow_html=True)
+                st.markdown("---") # Separator
+        # (No 'else' needed here as we stop earlier if no commits found)
 
 
-        # 5. Display the final answer
-        st.subheader("💡 Answer from MementoAI")
-        st.markdown(ai_answer)
+        # --- Step 4: Call Gemini for Summarization (If API Key is Set) ---
+        st.subheader("💡 AI Summary")
 
-elif user_question and (not embedding_model or not chroma_collection):
-    st.error("Resources (Embedding Model or Database) failed to load. Cannot process question. Check terminal logs.")
+        # Check if Gemini was configured correctly earlier
+        try:
+             genai.get_model(GEMINI_MODEL_NAME) # Quick check if API key is valid
+             gemini_ready = True
+        except Exception as e:
+             gemini_ready = False
+             print(f"Gemini check failed: {e}") # Log error to console
+             st.warning("Google Gemini API key not configured or invalid. Cannot generate summary.")
 
-# Add some footer or instructions
+        if gemini_ready:
+            with st.spinner("🧠 Asking Gemini to summarize the findings..."):
+                # Prepare context including messages and truncated diffs
+                context_parts = []
+                max_diff_chars_per_commit = 1500 # Limit diff size in prompt
+
+                for i, commit_data in enumerate(relevant_commits_data):
+                     truncated_diff = commit_data["diff"][:max_diff_chars_per_commit] + \
+                                      ("..." if len(commit_data["diff"]) > max_diff_chars_per_commit else "")
+                     # Exclude error messages from diff context
+                     if truncated_diff.startswith("Error") or truncated_diff.startswith("(No code changes"):
+                          diff_for_prompt = "(Diff not available or applicable)"
+                     else:
+                          diff_for_prompt = truncated_diff
+
+                     context_parts.append(
+                         f"Commit {i+1} ({commit_data['hash'][:7]}):\n"
+                         f"Message: {commit_data['message']}\n"
+                         f"Code Changes (Diff Snippet):\n```diff\n{diff_for_prompt}\n```\n---\n"
+                     )
+                full_context = "\n".join(context_parts)
+
+                # Construct the prompt for Gemini
+                prompt = f"""
+                Analyze the following Git commit information (message and code diff snippets) from the 'requests' library history to answer the user's question.
+
+                Focus *only* on the provided context. Synthesize insights from both the commit message (the 'why') and the code changes (the 'what').
+                If the context doesn't directly answer the question, state that clearly. Be concise and directly address the question.
+
+                Provided Context:
+                ---
+                {full_context}
+                ---
+
+                User Question: {user_question}
+
+                Answer:
+                """
+
+                # Call Gemini API
+                try:
+                    model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+                    # Use safety_settings to be less restrictive if needed, but defaults are usually okay
+                    # safety_settings = [
+                    #     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    #     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    #     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    #     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                    # ]
+                    # response = model.generate_content(prompt, safety_settings=safety_settings)
+                    response = model.generate_content(prompt)
+
+                    # Handle potential blocks or lack of content
+                    if response.parts:
+                         ai_answer = response.text
+                    elif response.prompt_feedback and response.prompt_feedback.block_reason:
+                         ai_answer = f"Content blocked by Gemini: {response.prompt_feedback.block_reason}. The prompt might have triggered safety filters."
+                    else:
+                         # This case might occur if the response is empty for other reasons
+                         ai_answer = "Gemini returned an empty response. Could not generate summary."
+
+                except Exception as e:
+                    st.error(f"Error calling Google Gemini API: {e}")
+                    # Check for specific API key errors if possible (depends on library exceptions)
+                    if "API key not valid" in str(e):
+                        st.error("Please check if your Google API Key is correct and enabled.")
+                    ai_answer = "Error: Could not get summary from AI Assistant."
+
+                # Display the final answer
+                st.markdown(ai_answer)
+
+# Footer
 st.markdown("---")
-st.markdown("Built for Hackathon | Data Source: `requests` library commit history")
+st.markdown("MementoAI | Hackathon Project | Data Source: `psf/requests` Git history")
