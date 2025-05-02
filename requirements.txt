@@ -1,0 +1,12 @@
+# requirements.txt
+streamlit
+fastapi
+uvicorn[standard] # Server for FastAPI
+pydantic # For data validation in FastAPI
+requests # For Streamlit to call the FastAPI backend
+sentence-transformers
+torch
+google-generativeai
+validators
+python-multipart # Often needed for FastAPI/CORS
+# chromadb # Technically NOT needed for the on-demand feature, only for pre-indexing
