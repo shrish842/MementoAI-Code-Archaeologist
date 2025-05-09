@@ -13,17 +13,13 @@ import validators
 
 print("API Script loading...")
 
-# --- Configuration ---
 
-# --- Model Names & Constants ---
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-# Use the model name that is less likely to cause 404 errors during testing
 GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"
-NUM_COMMITS_TO_ANALYZE = 1000 # Keeping your setting
+NUM_COMMITS_TO_ANALYZE = 1000 
 MAX_DIFF_CHARS = 2000 # Limit diff size sent to LLM
 
-# --- Configure Gemini API ---
-# Attempt configuration once at startup. Store success status.
+
 genai_configured = False
 google_api_key_to_use = None
 
@@ -34,35 +30,32 @@ try:
         google_api_key_to_use = env_key
         print("INFO: Found Google API Key in Environment Variable.")
     else:
-        # Fallback: Manual paste (REMOVE BEFORE SHARING/COMMITTING)
-        manual_key = "" # <-- PASTE YOUR *VALID* GEMINI KEY HERE
+        manual_key = "AIzaSyAIlbNSy7yS9_IFhSh-qiA_h88nZ4yFV0A" # <-- PASTE YOUR *VALID* GEMINI KEY HERE
         if manual_key and manual_key != "YOUR_GOOGLE_API_KEY_GOES_HERE":
             google_api_key_to_use = manual_key
             print("INFO: Found Manual Google API Key in script.")
         else:
              print("WARNING: Google API key not found in env vars or script placeholder.")
 
-    # --- Attempt configuration ONLY if a key was found ---
+   
     if google_api_key_to_use:
         try:
             genai.configure(api_key=google_api_key_to_use)
-            # We won't check genai.get_model here to avoid startup 404s if the key is valid
-            # but the specific check fails for some reason. We rely on the actual call later.
-            genai_configured = True # Assume okay if configure doesn't raise immediate error
+            
+            genai_configured = True
             print(f"INFO: genai.configure called successfully. Will use model '{GEMINI_MODEL_NAME}' when needed.")
         except Exception as config_e:
-            # Catch errors during configure() itself (e.g., invalid key format)
+            
             print(f"ERROR: genai.configure failed: {config_e}")
-            genai_configured = False # Explicitly set to False on config error
+            genai_configured = False 
     else:
-        genai_configured = False # No key was found
-
+        genai_configured = False 
 except Exception as e:
-    # Catch any unexpected errors during the key retrieval/config block
+    
     print(f"ERROR during API Key setup phase: {e}")
     genai_configured = False
 
-# --- Load Embedding Model ONCE at startup ---
+
 embedding_model = None
 try:
     print(f"Loading embedding model: {EMBEDDING_MODEL_NAME}...")
@@ -71,7 +64,7 @@ try:
     print(f"Embedding model loaded ({time.time() - t_start:.2f}s). Device: {embedding_model.device}")
 except Exception as e:
     print(f"FATAL ERROR: Could not load embedding model: {e}")
-    embedding_model = None # Ensure it's None if loading failed
+    embedding_model = None 
 
 # --- Helper Functions ---
 def get_git_diff(commit_hash, repo_path):
@@ -96,7 +89,7 @@ def get_git_diff(commit_hash, repo_path):
     except subprocess.TimeoutExpired: return f"Error: `git show` timed out for {commit_hash[:7]}"
     except Exception as e: return f"Exception getting diff: {e}"
 
-# --- Define Request/Response Models ---
+
 class AnalyzeRequest(BaseModel):
     repo_url: str
     question: str
@@ -110,26 +103,24 @@ class CommitInfo(BaseModel):
     diff: str
 
 class AnalyzeResponse(BaseModel):
-    status: str = "processing" # processing, success, error, partial_success
-    message: str | None = None # e.g., error details or success message
+    status: str = "processing"
+    message: str | None = None 
     relevant_commits: list[CommitInfo] = []
     ai_summary: str | None = None
 
-# --- Initialize FastAPI App ---
+
 app = FastAPI(title="MementoAI Backend API")
 
-# --- CORS Configuration ---
 origins = [
     "http://localhost",
     "http://localhost:8501",
-    # Add deployed frontend URL if needed
-]
+    ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- API Endpoint ---
+
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_repository(request: AnalyzeRequest):
     """
@@ -137,7 +128,7 @@ async def analyze_repository(request: AnalyzeRequest):
     """
     print(f"Received request for URL: {request.repo_url}, Question: {request.question}")
 
-    # --- Input Validation ---
+    
     if not embedding_model:
         raise HTTPException(status_code=503, detail="Embedding model not loaded on server.")
     if not validators.url(request.repo_url) or not request.repo_url.endswith(".git"):
@@ -145,9 +136,9 @@ async def analyze_repository(request: AnalyzeRequest):
     if not request.question:
          raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    # --- Core Analysis Logic ---
+    
     analysis_error = None
-    top_commits_for_summary = [] # Stores CommitInfo objects
+    top_commits_for_summary = [] 
 
     with tempfile.TemporaryDirectory() as tmpdir:
         print(f"Using temporary directory: {tmpdir}")
@@ -214,33 +205,33 @@ async def analyze_repository(request: AnalyzeRequest):
         except subprocess.TimeoutExpired as e:
             analysis_error = f"Git command timed out during analysis: {e.cmd}"
             print(f"ERROR: {analysis_error}")
-        except ValueError as e: # Catch "No valid commits" error
+        except ValueError as e: 
              analysis_error = str(e)
              print(f"WARN: {analysis_error}")
         except Exception as e:
             analysis_error = f"Unexpected error during analysis: {e}"
             print(f"ERROR: {analysis_error}")
 
-    # --- Outside the temp directory context ---
+    
     print("Temporary directory cleaned up.")
 
     # If a critical error stopped processing before getting commits
     if analysis_error and not top_commits_for_summary:
-        # Return error immediately if core analysis failed critically
+        
         return AnalyzeResponse(status="error", message=analysis_error)
 
-    # --- Call Gemini ---
+    
     ai_summary_text = None
     gemini_call_attempted = False
 
-    # Check if configured AND we have commits AND no critical prior error
+    
     if genai_configured and top_commits_for_summary and not analysis_error:
         print(f"Attempting Gemini summarization using model: {GEMINI_MODEL_NAME}...")
         gemini_call_attempted = True
-        # Prepare context
+        
         context_parts = []
         for i, commit_data in enumerate(top_commits_for_summary):
-            # Use dot notation for Pydantic model attributes
+            # Using dot notation for Pydantic model attributes
             diff_to_truncate = commit_data.diff
             truncated_diff = diff_to_truncate[:MAX_DIFF_CHARS] + \
                              ("..." if len(diff_to_truncate) > MAX_DIFF_CHARS else "")
@@ -266,10 +257,10 @@ async def analyze_repository(request: AnalyzeRequest):
                 print("WARN: Gemini returned empty response.")
             print("Gemini summarization attempt finished.")
 
-        except Exception as e: # Catch API call errors
+        except Exception as e: 
             print(f"ERROR calling Google Gemini API: {e}")
             error_str = str(e)
-            # Check for common API errors
+            
             if "API key not valid" in error_str or "PERMISSION_DENIED" in error_str or "API_KEY_INVALID" in error_str:
                  ai_summary_text = "Error: Invalid or unauthorized Google API Key. Please check configuration."
             elif "404" in error_str and "Model" in error_str and "not found" in error_str:
@@ -277,19 +268,18 @@ async def analyze_repository(request: AnalyzeRequest):
             else:
                  ai_summary_text = f"Error during AI summarization: {e}"
 
-    # --- Assign appropriate summary text if call wasn't made or failed ---
+    
     if not gemini_call_attempted:
         if analysis_error:
             ai_summary_text = "AI Summarization skipped due to earlier analysis error."
         elif not top_commits_for_summary:
             ai_summary_text = "AI Summarization skipped (no relevant commits found)."
-        else: # This implies genai_configured was False
+        else: 
             ai_summary_text = "AI Summarization skipped (API Key not configured)."
-    elif ai_summary_text is None: # Handle case where try block finished but summary wasn't set (shouldn't happen often)
+    elif ai_summary_text is None: 
          ai_summary_text = "AI Summarization failed for an unknown reason after attempt."
 
 
-    # --- Return the final response ---
     final_status = "success"
     final_message = "Analysis complete."
     if analysis_error:
@@ -297,8 +287,7 @@ async def analyze_repository(request: AnalyzeRequest):
         final_message = analysis_error
     if ai_summary_text and "Error:" in ai_summary_text:
         final_status = "partial_success" if final_status == "success" else final_status # Keep 'error' if analysis failed
-        # Optionally append AI error to main message if needed
-        # final_message += f" | {ai_summary_text}"
+       
 
     return AnalyzeResponse(
         status=final_status,
@@ -311,8 +300,8 @@ async def analyze_repository(request: AnalyzeRequest):
 async def root():
     return {"message": "MementoAI Backend API is running!"}
 
-# --- Optional: Run with uvicorn if script is executed directly ---
+
 if __name__ == "__main__":
     import uvicorn
     print("Starting Uvicorn server directly...")
-    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True) # Match command line args
+    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True) 
