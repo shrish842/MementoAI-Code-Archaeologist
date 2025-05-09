@@ -2,10 +2,9 @@ import os
 import time
 import subprocess
 import tempfile
-# No need for shutil if using tempfile.TemporaryDirectory
-import torch # For tensor conversion
+import torch 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware # For CORS
+from fastapi.middleware.cors import CORSMiddleware 
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, util
 import google.generativeai as genai
@@ -30,7 +29,7 @@ try:
         google_api_key_to_use = env_key
         print("INFO: Found Google API Key in Environment Variable.")
     else:
-        manual_key = "AIzaSyAIlbNSy7yS9_IFhSh-qiA_h88nZ4yFV0A" # <-- PASTE YOUR *VALID* GEMINI KEY HERE
+        manual_key = "" # <-- PASTE YOUR *VALID* GEMINI KEY HERE
         if manual_key and manual_key != "YOUR_GOOGLE_API_KEY_GOES_HERE":
             google_api_key_to_use = manual_key
             print("INFO: Found Manual Google API Key in script.")
@@ -179,7 +178,7 @@ async def analyze_repository(request: AnalyzeRequest):
             print("Performing semantic search...")
             search_hits = util.semantic_search(torch.tensor(question_embedding), torch.tensor(commit_embeddings), top_k=5)[0]
 
-            # 5. Get Top Commits & Fetch Diffs
+            # 5. Getting Top Commits & Fetch Diffs
             print("Fetching diffs...")
             if not search_hits: print("No relevant commits found from semantic search.")
             for hit in search_hits:
@@ -189,9 +188,9 @@ async def analyze_repository(request: AnalyzeRequest):
                  if timestamp:
                      try: commit_date = time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(timestamp))
                      except: pass
-                 # Fetch diff using the temporary directory path
+                 # Fetching diff using the temporary directory path
                  diff_text = get_git_diff(retrieved_commit_dict['hash'], tmpdir)
-                 # Populate the list used for both display and summarization
+                
                  top_commits_for_summary.append(CommitInfo(
                      hash=retrieved_commit_dict['hash'], message=retrieved_commit_dict['full_message'],
                      author=retrieved_commit_dict.get('author', 'N/A'), date=commit_date,
