@@ -120,7 +120,7 @@ You'll need to run three separate processes, typically in three different termin
     *   Open Terminal 1 (activate venv).
     *   Run:
         ```bash
-        celery -A app.tasks.celery_tasks.celery_app_instance worker -l INFO --pool=solo
+        celery -A api.celery_app worker -l INFO --pool=solo
         ```
     *   This worker will pick up indexing tasks.
 
@@ -128,7 +128,7 @@ You'll need to run three separate processes, typically in three different termin
     *   Open Terminal 2 (activate venv).
     *   Run:
         ```bash
-        uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --reload-dirs app
+        uvicorn api:app --host 127.0.0.1 --port 8000 --reload
         ```
     *   This serves the backend API. Check for any startup errors related to API keys or model loading.
 
@@ -136,7 +136,7 @@ You'll need to run three separate processes, typically in three different termin
     *   Open Terminal 3 (activate venv).
     *   Run:
         ```bash
-        streamlit run streamlit_app.py
+        streamlit run app.py
         ```
     *   This opens the web interface in your browser (usually `http://localhost:8501`).
 
