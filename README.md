@@ -1,52 +1,66 @@
-# 🏛️ MementoAI: Codebase Archaeologist
+# 🏛️ MementoAI: Codebase Archaeologist (Scalable Edition)
 
-**Unearthing Insights from Your Code's History with Natural Language.**
+**Unearthing Deep Insights from Your Code's History with Natural Language, AI, and a Scalable Backend.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) <!-- Optional: Add license badge -->
-<!-- Add other badges if relevant (e.g., build status, code coverage) -->
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<!-- Add other relevant badges -->
 
 ---
 
-**Problem:** Understanding the evolution of large, complex codebases is a major challenge for developers. Manually digging through thousands of Git commits to find the *why* behind a change is slow, tedious, and often frustrating. Critical historical context gets lost, slowing down debugging, onboarding, and feature development.
+**Problem:** Developers waste critical time manually deciphering complex Git histories to understand the 'why' and 'what' behind code changes. Traditional tools offer limited keyword search, failing to grasp semantic intent or provide comprehensive context (like associated code diffs), hindering debugging, onboarding, and effective maintenance.
 
-**Solution:** MementoAI acts as your intelligent assistant for navigating code history. Ask questions in plain English, and MementoAI uses semantic search powered by modern NLP techniques (Sentence Embeddings & Vector Databases) to instantly find the most relevant commit messages **and their associated code changes (diffs)** from the repository's history. This provides crucial context, including both the developer's narrative and implementation details, in seconds.
+**Solution:** MementoAI is an intelligent platform for navigating code history. Users can submit any public Git repository for analysis. MementoAI's backend **asynchronously clones the repository, extracts commit history, generates semantic embeddings for messages, fetches code diffs, and indexes this rich data into Pinecone.** Users can then ask natural language questions via a Streamlit frontend. The system performs a semantic search on the indexed messages, retrieves relevant commits with their diffs, and utilizes the Google Gemini API in a Retrieval-Augmented Generation (RAG) workflow to provide concise, context-aware summaries based on both the developer's narrative and the actual code changes.
 
 ---
 
 ## ✨ Key Features
 
-*   **💬 Natural Language Queries:** Ask questions like "Why was the session object changed?" instead of complex `git log` commands.
-*   **🧠 Semantic Understanding:** Goes beyond simple keyword matching to grasp the *meaning* behind your query and commit messages.
-*   **⚡ Fast Retrieval:** Uses efficient vector search (ChromaDB) to scan thousands of commits instantly based on message relevance.
-*   **🎯 Relevant Results:** Pinpoints the most historically relevant commits based on semantic similarity.
-*   **📊 View Code Changes:** Displays the actual `diff` for retrieved commits, showing exactly what code was modified alongside the commit message.
-*   **🤖 AI Summarization (Optional):** Utilizes Google Gemini Pro to generate concise summaries based on both the commit messages and the code changes found (requires API key).
-*   **🌐 Web Interface:** Simple and interactive UI built with Streamlit.
-*   **🔧 Modular Design:** Easily adaptable to different repositories.
+*   **🔗 Analyze Any Public Repo:** Submit a Git URL for on-demand, asynchronous indexing.
+*   **💬 Natural Language Queries:** Ask questions like "Why was the session object changed?"
+*   **🧠 Semantic Understanding:** Finds relevant commits by *meaning* (via Sentence Transformers), not just keywords.
+*   **📊 Rich Context:** Retrieves commit messages, author/date, similarity scores, AND the **full code diffs**.
+*   **🤖 AI Summarization (Gemini):** Generates concise summaries synthesizing insights from both commit messages and code changes.
+*   **☁️ Scalable Backend:** Built with FastAPI, Celery (for background tasks), and Pinecone (for a managed, scalable vector database).
+*   **🌐 Interactive UI:** Streamlit frontend for easy interaction, job submission, and result viewing.
+*   **⚙️ Asynchronous Indexing:** Long-running repository processing happens in the background without blocking the user.
 
-## 🚀 Live Demo
+---
 
-**Click the image below to watch a video demonstration of MementoAI on Loom:**
+## 🚀 Demo & Workflow
 
+**1. Index Repository:** User submits a public Git URL. A background job is queued.
+**2. Check Status:** User monitors the indexing job status.
+**3. Query:** Once indexed, user asks natural language questions about the repository's history.
+**4. Get Insights:** MementoAI displays relevant commits (messages + diffs) and an AI-generated summary.
+
+**Video Demonstration:**
 [![MementoAI Demo Video Thumbnail](./assets/loom_thumbnail.png)](https://www.loom.com/share/7e53cd79f26a44469cceb3da4e1994b8?sid=f93f02a6-3630-436b-9500-4bed8818aeb6)
+*Caption: Watch MementoAI index a repository and answer historical queries.*
 
-*Caption: This video shows MementoAI retrieving relevant commits and code changes for a natural language query about the 'requests' library.*
+*(Ensure you have a `loom_thumbnail.png` in an `assets` folder or update the path/link)*
+
+---
 
 ## ⚙️ Technology Stack
 
-*   **Backend & Core Logic:** Python 3
-*   **NLP Embeddings:** `sentence-transformers` (using `all-MiniLM-L6-v2` model)
-*   **Vector Database:** `ChromaDB` (for local persistent storage & similarity search)
-*   **Web Framework:** `Streamlit`
-*   **Git Interaction:** Python `subprocess` module (for `git log` and `git show`)
-*   **LLM Integration:** `google-generativeai` library (using `gemini-1.0-pro` model)
+*   **Backend API:** Python 3, FastAPI
+*   **Frontend UI:** Streamlit
+*   **Asynchronous Tasks:** Celery
+*   **Message Broker (for Celery):** Redis
+*   **NLP Embeddings:** `sentence-transformers` (`all-MiniLM-L6-v2` model)
+*   **Vector Database:** `Pinecone` (Managed, Serverless)
+*   **LLM Integration:** `google-generativeai` library (`gemini-1.5-flash-latest` model)
+*   **Git Interaction:** Python `subprocess` module (`git clone`, `git log`, `git show`)
+*   **Data Validation:** Pydantic
+*   **API Server:** Uvicorn
+*   **URL Validation:** `validators`
 *   **Data Handling:** `json`
 
 ---
 
-## 🛠️ Setup & Installation
+## 🛠️ Setup & Installation (Local Development)
 
-Follow these steps to set up and run MementoAI locally:
+MementoAI now has a separated frontend, backend API, and a background worker.
 
 1.  **Clone this Repository:**
     ```bash
@@ -57,91 +71,113 @@ Follow these steps to set up and run MementoAI locally:
 2.  **Prerequisites:**
     *   **Python 3.9+:** Ensure Python is installed and added to your PATH.
     *   **Git:** Ensure Git is installed and accessible from your terminal.
-    *   **(Windows Specific) Microsoft C++ Build Tools:** Required for compiling `chromadb` dependencies. Download from [here](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and install the "Desktop development with C++" workload. Restart your terminal after installation.
+    *   **Redis:** Install and run a Redis server. Easiest with Docker: `docker run -d -p 6379:6379 redis`
+    *   **(Windows Specific) Microsoft C++ Build Tools:** May be required for some Python package dependencies if they compile C/C++ code. Download from [here](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and install the "Desktop development with C++" workload.
 
-3.  **Install Python Dependencies:**
+3.  **Create a Python Virtual Environment (Recommended):**
+    ```bash
+    python -m venv .venv
+    # Windows:
+    .\.venv\Scripts\activate
+    # macOS/Linux:
+    # source .venv/bin/activate
+    ```
+
+4.  **Install Python Dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
-    *(Note: Ensure `requirements.txt` includes `streamlit`, `google-generativeai`, `sentence-transformers`, `chromadb`, etc. Create/update using `pip freeze > requirements.txt`)*
+    *(Ensure `requirements.txt` is up-to-date with `fastapi`, `uvicorn`, `celery`, `redis`, `pinecone-client`, `google-generativeai`, `sentence-transformers`, `streamlit`, `validators`, etc.)*
 
-4.  **Download Target Repository Data:**
-    *   MementoAI needs the commit history of the repository you want to analyze. For the demo, we use `psf/requests`.
-    *   Clone the target repository locally. **Note the full path to this cloned repository.**
-        ```bash
-        # Example: Clone 'requests' inside the CodeBase_Archaelogist directory
-        git clone https://github.com/psf/requests.git
-        # Or clone it elsewhere and note its path
+5.  **Configure API Keys & Environment Variables:**
+    *   Create a `.env` file in the project root (this file is listed in `.gitignore` and should NOT be committed).
+    *   Add your API keys to the `.env` file:
+        ```env
+        # .env
+        PINECONE_API_KEY="YOUR_ACTUAL_PINECONE_KEY"
+        GOOGLE_API_KEY="AIzaYourActualGoogleApiKey..."
+        # Optional: Override Celery broker/backend if not using default localhost Redis
+        # CELERY_BROKER_URL="redis://other_host:6379/0"
+        # CELERY_RESULT_BACKEND="redis://other_host:6379/0"
         ```
-    *   **Important:** Update the `REPO_PATH` variable inside `extract_git_log.py` to point to the exact location of the *cloned target repository* (e.g., `./requests` or `C:/path/to/requests`).
-    *   **Equally Important:** Update the `REPO_PATH_FOR_GIT_COMMANDS` variable inside `app.py` to point to the *same location* of the cloned target repository, as `app.py` now also runs `git show`.
+    *   The `app/core/config.py` file is set up to load these environment variables.
 
-5.  **Extract Commit History:**
-    *   Run the extraction script. This will create `requests_commits.json` in the MementoAI project directory.
-    ```bash
-    python extract_git_log.py
-    ```
-
-6.  **Generate Embeddings & Build Database:**
-    *   Run the embedding script. This will process `requests_commits.json`, generate embeddings based on commit messages, and save them into the `./chroma_db` directory. This can take several minutes.
-    ```bash
-    python embed_commits.py
-    ```
-
-7.  **(Optional but Recommended for Summaries) Configure Google Gemini API Key:**
-    *   Get an API key from [Google AI Studio](https://aistudio.google.com/).
-    *   The most secure way is via an environment variable:
-        ```bash
-        # Example (Linux/macOS):
-        export GOOGLE_API_KEY='AIzaYourKeyHere...'
-        # Example (Windows CMD):
-        set GOOGLE_API_KEY=AIzaYourKeyHere...
-        # Example (Windows PowerShell):
-        $env:GOOGLE_API_KEY='AIzaYourKeyHere...'
-        ```
-    *   Alternatively, for quick testing, you can temporarily paste it into the `google_api_key_manual` variable in `app.py` **(BUT REMOVE BEFORE COMMITTING/SHARING!)**. If no key is configured, the summarization feature will be disabled.
+6.  **Pinecone Index Setup:**
+    *   Ensure you have a Pinecone account and have created an index named `mementoai` (or update `PINECONE_INDEX_NAME` in `app/core/config.py`).
+    *   The index **must** have `384` dimensions and use `cosine` similarity metric.
+    *   The `api.py` script will attempt to create the index if it doesn't exist, but it's better to ensure it's ready in your Pinecone console.
 
 ---
 
-## 💻 Usage
+## 💻 Running the Application (Local Development)
 
-1.  **Run the Streamlit Application:**
-    ```bash
-    streamlit run app.py
-    ```
-    *   This starts a local web server and opens the app in your browser (usually `http://localhost:8501`).
+You'll need to run three separate processes, typically in three different terminal windows (make sure your virtual environment is activated in each).
 
-2.  **Ask Questions:**
-    *   Type your question about the codebase's history into the text input box (e.g., "Tell me about authentication changes", "Fixes related to CVE-...", "Why was this dependency added?").
-    *   Press Enter.
+1.  **Start Redis Server:** (If not already running via Docker or as a service).
+    *   If installed locally (e.g., on Windows): navigate to Redis installation dir and run `redis-server.exe`.
 
-3.  **View Results:**
-    *   MementoAI embeds your question, queries the database based on commit messages, and displays the top N most relevant results.
-    *   For each result, you will see:
-        *   The commit hash, author, date, and similarity score.
-        *   The full commit message.
-        *   An expandable section showing the actual **code changes (diff)** for that commit.
-        *   A link to view the commit on GitHub.
-    *   If a valid Google Gemini API key is configured, an AI-generated summary based on the retrieved messages and diffs will be displayed. Otherwise, an informational note appears.
+2.  **Start Celery Worker:**
+    *   Open Terminal 1 (activate venv).
+    *   Run:
+        ```bash
+        celery -A api.celery_app worker -l INFO --pool=solo
+        ```
+    *   This worker will pick up indexing tasks.
+
+3.  **Start FastAPI Backend API Server:**
+    *   Open Terminal 2 (activate venv).
+    *   Run:
+        ```bash
+        uvicorn api:app --host 127.0.0.1 --port 8000 --reload
+        ```
+    *   This serves the backend API. Check for any startup errors related to API keys or model loading.
+
+4.  **Start Streamlit Frontend UI:**
+    *   Open Terminal 3 (activate venv).
+    *   Run:
+        ```bash
+        streamlit run app.py
+        ```
+    *   This opens the web interface in your browser (usually `http://localhost:8501`).
+
+**Using the Application:**
+
+1.  In the Streamlit UI, go to "1. Index New Repository".
+2.  Enter a public Git repository URL (ending in `.git`).
+3.  Click "Start Indexing Repository". Note the `Job ID` and `Repo ID/Namespace` provided.
+4.  Go to the "Check Indexing Job Status" section and click "Refresh Indexing Status" periodically. Wait for the status to become `SUCCESS` or `completed` (indexing can take several minutes).
+5.  Once indexing is complete, go to "2. Query an Indexed Repository".
+6.  Enter the `Repo ID/Namespace` from the indexing step.
+7.  Type your question about the repository's history and click "Ask MementoAI".
+8.  View the retrieved commits (with messages and diffs) and the AI-generated summary.
 
 ---
 
 ## ✨ Future Work & Roadmap
 
-MementoAI has exciting potential for expansion:
+MementoAI is poised for significant enhancements to become a comprehensive code intelligence platform:
 
-*   [ ] **Semantic Search on Code Diffs:** Index embeddings *of the code changes themselves* for more direct code-related queries.
-*   [ ] **Integrate Issue Tracker Data:** Connect to GitHub/GitLab APIs to include context from issues and pull requests.
-*   [ ] **IDE Plugin:** Develop extensions for VS Code, PyCharm, etc., to bring MementoAI insights directly into the developer workflow.
-*   [ ] **Alternative LLMs:** Add support for other open-source or commercial LLMs for summarization.
-*   [ ] **Advanced Filtering:** Add options to filter search results by author, date range, file path affected in the diff, etc.
-*   [ ] **Cross-Repo Analysis:** Support querying across multiple related repositories.
-*   [ ] **Incremental Indexing:** Implement efficient updates to the vector database as new commits arrive in the target repository.
+*   [ ] **Private Repository Support:** Securely handle authentication (OAuth) for GitHub, GitLab, etc.
+*   [ ] **Advanced Diff Analysis & Search:** Semantically index code *within* diffs, enabling queries directly on code changes.
+*   [ ] **Issue Tracker Integration:** Link commits to issues/PRs from platforms like Jira, GitHub Issues.
+*   [ ] **IDE & Platform Plugins:** Bring MementoAI insights directly into VS Code, JetBrains IDEs, and GitHub/GitLab UIs.
+*   [ ] **Fine-tuned LLMs:** Train custom LLMs specifically for code history summarization and Q&A.
+*   [ ] **Robust Incremental Indexing:** Efficiently update Pinecone with new commits for active repositories.
+*   [ ] **Team & Collaboration Features:** Shared repositories, access controls for teams.
+*   [ ] **UI/UX Polish:** Enhance visualizations and user experience.
+*   [ ] **Scalable Cloud Deployment:** Full cloud-native deployment architecture for the backend and workers.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details (if you add one).
+This project is licensed under the MIT License. (Consider adding a `LICENSE` file with the MIT license text).
+
+---
+
+## 👥 Author / Startup Idea
+
+*   **Shish Agrawal**
+*   *This project represents the foundational concept for a startup aiming to revolutionize how developers interact with and understand code history.*
 
 ---
