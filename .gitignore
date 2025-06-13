@@ -21,3 +21,5 @@ env/
 # Ignore OS-specific files (optional but good practice)
 .DS_Store
 Thumbs.db
+
+grammars/languages.so
