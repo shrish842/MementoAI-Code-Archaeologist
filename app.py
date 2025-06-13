@@ -84,6 +84,134 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def extract_code_from_diff(diff_text: str) -> Tuple[str, str]:
+    """Extract old and new code versions from unified diff"""
+    old_lines = []
+    new_lines = []
+    
+    for line in diff_text.split('\n'):
+        if line.startswith('-') and not line.startswith('---'):
+            old_lines.append(line[1:])
+        elif line.startswith('+') and not line.startswith('+++'):
+            new_lines.append(line[1:])
+        elif not line.startswith('@'):
+            # Context line - add to both
+            old_lines.append(line)
+            new_lines.append(line)
+    
+    return '\n'.join(old_lines), '\n'.join(new_lines)
+
+def render_diff_viewer(old_code: str, new_code: str):
+    """Enhanced VS Code-like diff viewer"""
+    diff = list(unified_diff(
+        old_code.splitlines(keepends=True),
+        new_code.splitlines(keepends=True),
+        fromfile="Old Version",
+        tofile="New Version",
+        n=3
+    ))
+    
+    with st.container():
+        st.markdown("### Code Changes")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Old Version**")
+            old_container = st.container(height=400, border=True)
+        
+        with col2:
+            st.markdown("**New Version**")
+            new_container = st.container(height=400, border=True)
+        
+        with old_container:
+            for line in diff:
+                if line.startswith('-') and not line.startswith('---'):
+                    st.markdown(f'<div class="diff-line diff-removed">{line[1:]}</div>', 
+                               unsafe_allow_html=True)
+                elif not line.startswith('+') and not line.startswith('@'):
+                    st.markdown(f'<div class="diff-line diff-unchanged">{line}</div>', 
+                               unsafe_allow_html=True)
+        
+        with new_container:
+            for line in diff:
+                if line.startswith('+') and not line.startswith('++'):
+                    st.markdown(f'<div class="diff-line diff-added">{line[1:]}</div>', 
+                               unsafe_allow_html=True)
+                elif not line.startswith('-') and not line.startswith('@'):
+                    st.markdown(f'<div class="diff-line diff-unchanged">{line}</div>', 
+                               unsafe_allow_html=True)
+
+def render_technical_debt(debt_data: Dict):
+    """Interactive technical debt visualization"""
+    if not debt_data:
+        return
+    
+    with st.expander("🧮 Technical Debt Analysis", expanded=True):
+        tab1, tab2, tab3 = st.tabs(["Metrics", "Trends", "Breakdown"])
+        
+        with tab1:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Debt Score", 
+                         f"{debt_data.get('technical_debt_score', 0):.1f}/100",
+                         delta=f"{debt_data.get('debt_delta', 0):+.1f} change" if debt_data.get('debt_delta') else None,
+                         delta_color="inverse")
+            
+            with col2:
+                st.metric("Maintainability", 
+                         f"{debt_data.get('maintainability_index', 0):.1f}",
+                         help="Higher is better (0-100 scale)")
+            
+            with col3:
+                st.metric("Duplication", 
+                         f"{debt_data.get('duplication', 0):.1f}%",
+                         help="Percentage of duplicated code")
+        
+        with tab2:
+            if 'history' in debt_data:
+                fig = px.line(
+                    debt_data['history'],
+                    x='date',
+                    y='technical_debt_score',
+                    title='Technical Debt Trend',
+                    markers=True
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No historical data available for this commit")
+        
+        with tab3:
+            metrics = [
+                ("Cyclomatic Complexity", debt_data.get('avg_complexity', 0), 10),
+                ("Code Smells", len(debt_data.get('code_smells', [])), 10),
+                ("Duplication", debt_data.get('duplication', 0), 20),
+                ("Maintainability", 100 - debt_data.get('maintainability_index', 0), 100)
+            ]
+            
+            for name, value, max_val in metrics:
+                percent = min((value / max_val) * 100, 100)
+                color = "red" if percent > 70 else "orange" if percent > 40 else "green"
+                
+                st.markdown(f"""
+                <div style="margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span><strong>{name}</strong></span>
+                        <span>{value:.1f}</span>
+                    </div>
+                    <div style="height: 8px; background: #eee; border-radius: 4px;">
+                        <div style="width: {percent}%; height: 100%; background: {color}; border-radius: 4px;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            if debt_data.get('code_smells'):
+                with st.expander(f"🚨 Code Smells ({len(debt_data['code_smells'])})"):
+                    for smell in debt_data['code_smells'][:5]:
+                        st.markdown(f"- {smell}")
+                    if len(debt_data['code_smells']) > 5:
+                        st.markdown(f"*+ {len(debt_data['code_smells']) - 5} more...*")
+
+
 # UI Setup
 #st.title("🏛️ MementoAI: Codebase Archaeologist")
 st.markdown("""
@@ -178,7 +306,6 @@ if st.session_state.indexing_job_id:
                 st.balloons()
                 st.success("Indexing complete! You can now query the repository.")
 
-# --- Query UI ---
 st.markdown("---")
 st.header("2. Query an Indexed Repository")
 
@@ -201,112 +328,6 @@ user_question = st.text_area(
 query_button = st.button("🔍 Ask MementoAI", key="query_button", type="primary")
 
 results_placeholder = st.empty()
-
-def render_diff_viewer(old_code: str, new_code: str):
-    """Enhanced VS Code-like diff viewer"""
-    diff = list(unified_diff(
-        old_code.splitlines(keepends=True),
-        new_code.splitlines(keepends=True),
-        fromfile="Old Version",
-        tofile="New Version",
-        n=3
-    ))
-    
-    with st.container():
-        st.markdown("### Code Changes")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Old Version**")
-            old_container = st.container(height=400, border=True)
-        
-        with col2:
-            st.markdown("**New Version**")
-            new_container = st.container(height=400, border=True)
-        
-        with old_container:
-            for line in diff:
-                if line.startswith('-') and not line.startswith('---'):
-                    st.markdown(f'<div class="diff-line diff-removed">{line[1:]}</div>', 
-                               unsafe_allow_html=True)
-                elif not line.startswith('+') and not line.startswith('@'):
-                    st.markdown(f'<div class="diff-line diff-unchanged">{line}</div>', 
-                               unsafe_allow_html=True)
-        
-        with new_container:
-            for line in diff:
-                if line.startswith('+') and not line.startswith('++'):
-                    st.markdown(f'<div class="diff-line diff-added">{line[1:]}</div>', 
-                               unsafe_allow_html=True)
-                elif not line.startswith('-') and not line.startswith('@'):
-                    st.markdown(f'<div class="diff-line diff-unchanged">{line}</div>', 
-                               unsafe_allow_html=True)
-
-def render_technical_debt(debt_data: Dict):
-    """Interactive technical debt visualization"""
-    with st.expander("🧮 Technical Debt Analysis", expanded=True):
-        tab1, tab2, tab3 = st.tabs(["Metrics", "Trends", "Breakdown"])
-        
-        with tab1:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Debt Score", f"{debt_data.get('technical_debt_score', 0):.1f}/100",
-                         delta=f"{debt_data.get('debt_delta', 0):+.1f} change",
-                         delta_color="inverse")
-            
-            with col2:
-                st.metric("Maintainability", 
-                         f"{debt_data.get('maintainability_index', 0):.1f}",
-                         help="Higher is better (0-100 scale)")
-            
-            with col3:
-                st.metric("Duplication", 
-                         f"{debt_data.get('duplication', 0):.1f}%",
-                         help="Percentage of duplicated code")
-        
-        with tab2:
-            if 'history' in debt_data:
-                fig = px.line(
-                    debt_data['history'],
-                    x='date',
-                    y='technical_debt_score',
-                    title='Technical Debt Trend',
-                    markers=True
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No historical data available for this commit")
-        
-        with tab3:
-            metrics = [
-                ("Cyclomatic Complexity", debt_data.get('avg_complexity', 0), 10),
-                ("Code Smells", len(debt_data.get('code_smells', [])), 10),
-                ("Duplication", debt_data.get('duplication', 0), 20),
-                ("Maintainability", 100 - debt_data.get('maintainability_index', 0), 100)
-            ]
-            
-            for name, value, max_val in metrics:
-                percent = min((value / max_val) * 100, 100)
-                color = "red" if percent > 70 else "orange" if percent > 40 else "green"
-                
-                st.markdown(f"""
-                <div style="margin-bottom: 15px;">
-                    <div style="display: flex; justify-content: space-between;">
-                        <span><strong>{name}</strong></span>
-                        <span>{value:.1f}</span>
-                    </div>
-                    <div style="height: 8px; background: #eee; border-radius: 4px;">
-                        <div style="width: {percent}%; height: 100%; background: {color}; border-radius: 4px;"></div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            if debt_data.get('code_smells'):
-                with st.expander(f"🚨 Code Smells ({len(debt_data['code_smells'])})"):
-                    for smell in debt_data['code_smells'][:5]:
-                        st.markdown(f"- {smell}")
-                    if len(debt_data['code_smells']) > 5:
-                        st.markdown(f"*+ {len(debt_data['code_smells']) - 5} more...*")
 
 if query_button and repo_id_to_query and user_question:
     with st.spinner(f"Querying repository {repo_id_to_query}..."):
@@ -390,8 +411,11 @@ if query_button and repo_id_to_query and user_question:
                                 
                                 # Diff Viewer
                                 if commit['diff'] and not commit['diff'].startswith("Error"):
-                                    old_code, new_code = extract_code_from_diff(commit['diff'])
-                                    render_diff_viewer(old_code, new_code)
+                                    try:
+                                        old_code, new_code = extract_code_from_diff(commit['diff'])
+                                        render_diff_viewer(old_code, new_code)
+                                    except Exception as e:
+                                        st.error(f"Error rendering diff: {str(e)}")
                                 else:
                                     st.info("No diff available for this commit")
                                 
@@ -405,23 +429,6 @@ if query_button and repo_id_to_query and user_question:
         except Exception as e:
             with results_placeholder.container():
                 st.error(f"An unexpected error occurred: {str(e)}")
-
-def extract_code_from_diff(diff_text: str) -> Tuple[str, str]:
-    """Extract old and new code versions from unified diff"""
-    old_lines = []
-    new_lines = []
-    
-    for line in diff_text.split('\n'):
-        if line.startswith('-') and not line.startswith('---'):
-            old_lines.append(line[1:])
-        elif line.startswith('+') and not line.startswith('+++'):
-            new_lines.append(line[1:])
-        elif not line.startswith('@'):
-            # Context line - add to both
-            old_lines.append(line)
-            new_lines.append(line)
-    
-    return '\n'.join(old_lines), '\n'.join(new_lines)
 
 # Footer
 st.markdown("---")
