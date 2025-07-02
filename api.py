@@ -20,6 +20,7 @@ from radon.complexity import cc_visit
 from radon.metrics import mi_visit
 from radon.raw import analyze
 import lizard
+import json
 
 print("API Script loading...") 
 
@@ -248,10 +249,14 @@ def analyze_technical_debt(code: str, language: str = 'python') -> TechnicalDebt
                 "temp.py" if language == 'python' else "temp.file", 
                 code
             )
-            metrics.duplication = lizard_analysis.average_duplication * 100  # as percentage
+            if hasattr(lizard_analysis, 'average_duplication'):
+                metrics.duplication = lizard_analysis.average_duplication * 100
+            elif hasattr(lizard_analysis, 'global_stats') and hasattr(lizard_analysis.global_stats, 'duplicate_rate'):
+                metrics.duplication = lizard_analysis.global_stats.duplicate_rate * 100
+                
         except Exception as e:
-            print(f"Lizard analysis error: {e}")
-        
+            print(f"Lizard analysis error: {e}")        
+                
         # Code smell detection (simplified)
         metrics.code_smells = detect_code_smells(code)
         
@@ -294,6 +299,7 @@ def detect_code_smells(code: str) -> List[str]:
         
     except Exception as e:
         print(f"Error detecting code smells: {e}")
+    
     
     return smells
 
@@ -381,7 +387,7 @@ def process_and_index_repository_task(repo_url: str, repo_id_for_namespace: str)
                 errors='replace'
             )
 
-            # 2. Extract Commits
+            # 2. Extracting Commits
             print(f"CELERY TASK [{task_id}]: Extracting commits from {tmpdir}")
             log_format = "%H||%an||%at||%s%n%b-----COMMIT_END-----"
             log_command = ["git", "log", f"--pretty=format:{log_format}"]
@@ -390,7 +396,9 @@ def process_and_index_repository_task(repo_url: str, repo_id_for_namespace: str)
                 cwd=tmpdir, 
                 capture_output=True, 
                 text=True, 
-                check=True, 
+                check=True,
+                encoding='utf-8', 
+                errors='replace', 
                 timeout=120
             )
 
@@ -424,7 +432,7 @@ def process_and_index_repository_task(repo_url: str, repo_id_for_namespace: str)
                 print(f"CELERY TASK [{task_id}] WARN: {message}")
                 return {"status": "warning", "message": message, "indexed_count": 0}
 
-            # 3. Embed Messages
+            # 3. Embedding Messages
             print(f"CELERY TASK [{task_id}]: Embedding {len(commit_messages_for_embedding)} messages...")
             embeddings = embedding_model.encode(
                 commit_messages_for_embedding, 
@@ -432,7 +440,7 @@ def process_and_index_repository_task(repo_url: str, repo_id_for_namespace: str)
                 show_progress_bar=False
             )
 
-            # 4. Prepare for Pinecone Upsert with AST Analysis
+            # 4. Preparing for Pinecone Upsert with AST Analysis
             vectors_for_pinecone = []
             for i, commit_details in enumerate(commits_to_embed):
                 print(f"CELERY TASK [{task_id}]: Processing commit {i+1}/{len(commits_to_embed)} - {commit_details['hash'][:7]}")
@@ -457,13 +465,13 @@ def process_and_index_repository_task(repo_url: str, repo_id_for_namespace: str)
                         "timestamp": commit_details["timestamp"],
                         "subject": commit_details["subject"],
                         "diff_snippet": truncated_diff,
-                        "functions_added": code_analysis.functions_added,
-                        "functions_removed": code_analysis.functions_removed,
-                        "functions_modified": code_analysis.functions_modified,
-                        "complexity_changes": code_analysis.complexity_changes,
-                        "technical_debt": new_debt.dict() if new_debt else None,
-                        "old_technical_debt": old_debt.dict() if old_debt else None,
-                        "debt_delta": debt_delta    
+                        "functions_added": code_analysis.functions_added or [],
+                        "functions_removed": code_analysis.functions_removed or [],
+                        "functions_modified": code_analysis.functions_modified or [],
+                        "complexity_changes": json.dumps(code_analysis.complexity_changes) if code_analysis.complexity_changes else "{}",
+                        "technical_debt": json.dumps(new_debt.dict()) if new_debt else "{}",
+                        "old_technical_debt": json.dumps(old_debt.dict()) if old_debt else "{}",
+                        "debt_delta": debt_delta if debt_delta is not None else 0.0     
                     }
                 ))
 
