@@ -131,6 +131,8 @@ def process_and_index_repository_task(repo_url: str, repo_id_for_namespace: str)
                 pinecone_index.upsert(vectors=batch, namespace=repo_id_for_namespace)
                 print(f"CELERY TASK [{task_id}]: Upserted batch {i//batch_size + 1}")
 
+            print("Pinecone vectors: ", vectors_for_pinecone)
+
             final_count = len(vectors_for_pinecone)
             print(f"CELERY TASK [{task_id}]: Upsert complete. Indexed {final_count} commits.")
             return {"status": "completed", "indexed_count": final_count, "message": "Indexing successful"}

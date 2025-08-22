@@ -4,13 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-# Load environment variables from .env file
-load_dotenv()
-
 from config.settings import settings
 from api.endpoints import router # Import the router
 from services.embedding_service import embedding_model
 from services.pinecone_service import pinecone_index
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(title="MementoAI Backend API")
 

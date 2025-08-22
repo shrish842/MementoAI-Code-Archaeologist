@@ -1,11 +1,10 @@
 from dotenv import load_dotenv
 import os
 
-# Load environment variables from .env file
-load_dotenv()
-
 from config.settings import settings
 from celery import Celery
+
+load_dotenv()
 
 # Initialize Celery app
 celery_app = Celery(
