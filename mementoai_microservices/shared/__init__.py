@@ -1,0 +1,1 @@
+"""Shared contracts and adapters for the MementoAI service split."""

@@ -1,0 +1,9 @@
+fastapi
+google-generativeai
+httpx
+pinecone
+pydantic
+sentence-transformers
+streamlit
+uvicorn
+validators

@@ -1,0 +1,1 @@
+"""Query service owning embeddings and vector search."""

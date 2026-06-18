@@ -1,0 +1,1 @@
+"""Ingestion service owning Git access and indexing."""

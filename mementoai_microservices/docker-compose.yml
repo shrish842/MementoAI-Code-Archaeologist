@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 8000
+      INGESTION_BASE_URL: http://ingestion:8001
+      QUERY_BASE_URL: http://query:8002
+      SUMMARY_BASE_URL: http://summary:8003
+    ports:
+      - "8000:8000"
+
+  ingestion:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    environment:
+      INGESTION_HOST: 0.0.0.0
+      INGESTION_PORT: 8001
+      PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+
+  query:
+    build:
+      context: .
+      dockerfile: services/query/Dockerfile
+    environment:
+      QUERY_HOST: 0.0.0.0
+      QUERY_PORT: 8002
+      PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+
+  summary:
+    build:
+      context: .
+      dockerfile: services/summary/Dockerfile
+    environment:
+      SUMMARY_HOST: 0.0.0.0
+      SUMMARY_PORT: 8003
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+
+  frontend:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: streamlit run services/frontend/app.py --server.port 8501 --server.address 0.0.0.0
+    environment:
+      MEMENTO_API_URL: http://gateway:8000
+    ports:
+      - "8501:8501"

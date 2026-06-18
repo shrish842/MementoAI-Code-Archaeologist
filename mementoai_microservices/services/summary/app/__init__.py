@@ -1,0 +1,1 @@
+"""Summary service owning Gemini-backed synthesis."""

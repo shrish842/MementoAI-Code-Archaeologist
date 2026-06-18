@@ -1,0 +1,1 @@
+"""Gateway service preserving the public API contract."""
