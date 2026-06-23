@@ -93,8 +93,81 @@ with st.expander("1. Index New Repository", expanded=True):
             st.session_state.current_repo_url_display = repo_url_to_index
             st.success(f"Indexing job started. Job ID: {data.get('job_id')}")
 
+
 if st.session_state.indexing_job_id:
     with st.expander("Check Indexing Job Status", expanded=True):
         st.write(f"Current Job ID: `{st.session_state.indexing_job_id}`")
         st.write(f"Repository: `{st.session_state.current_repo_url_display}`")
+
         if st.button("Refresh Indexing Status"):
+            response = requests.get(
+                f"{BACKEND_API_BASE_URL}/job_status/{st.session_state.indexing_job_id}",
+                timeout=15,
+            )
+
+            response.raise_for_status()
+            st.session_state.last_job_status = response.json()
+
+        if st.session_state.last_job_status:
+            st.json(st.session_state.last_job_status)
+
+st.markdown("---")
+
+st.header("2. Query an Indexed Repository")
+
+repo_id_to_query = st.text_input(
+    "Repository ID",
+    value=st.session_state.current_repo_id_for_query or ""
+)
+
+user_question = st.text_area(
+    "Your question",
+    height=100
+)
+
+if st.button("Ask MementoAI", type="primary") and repo_id_to_query and user_question:
+    response = requests.post(
+        f"{BACKEND_API_BASE_URL}/query_repository",
+        json={
+            "repo_id": repo_id_to_query,
+            "question": user_question,
+        },
+        timeout=60,
+    )
+
+    response.raise_for_status()
+    api_data = response.json()
+
+    st.subheader(f"Query Results for: {user_question}")
+
+    if api_data.get("ai_summary"):
+        with st.expander("AI Summary", expanded=True):
+            st.write(api_data["ai_summary"])
+
+    for commit in api_data.get("relevant_commits", []):
+        with st.container(border=True):
+            st.markdown(
+                f"**{commit['hash'][:7]}**  Similarity: {commit['similarity']:.2f}"
+            )
+
+            st.markdown(
+                f"Author: {commit.get('author', 'N/A')}  "
+                f"Date: {commit.get('date', 'Unknown')}"
+            )
+
+            st.markdown(
+                f"Message: {commit.get('message', '')}"
+            )
+
+            if commit.get("function_changes"):
+                st.json(commit["function_changes"])
+
+            if commit.get("technical_debt"):
+                render_technical_debt(commit["technical_debt"])
+
+            if commit.get("diff"):
+                old_code, new_code = extract_code_from_diff(
+                    commit["diff"]
+                )
+                render_diff_viewer(old_code, new_code)
+            

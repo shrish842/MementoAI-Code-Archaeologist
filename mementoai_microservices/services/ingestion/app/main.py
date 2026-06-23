@@ -23,7 +23,8 @@ async def index_repository(request: IndexRepositoryRequest, background_tasks: Ba
     if not validate_public_git_url(request.repo_url):
         raise HTTPException(status_code=400, detail="Only public https Git URLs ending in .git are allowed.")
     response = service.submit(request.repo_url)
-    background_tasks.add_task(service.run_job, response.job_id)
+    if not response.deduplicated:
+        background_tasks.add_task(service.run_job, response.job_id)
     return response
 
 

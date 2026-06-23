@@ -5,6 +5,13 @@ services:
     build:
       context: .
       dockerfile: services/gateway/Dockerfile
+    depends_on:
+      ingestion:
+        condition: service_healthy
+      query:
+        condition: service_healthy
+      summary:
+        condition: service_healthy
     environment:
       GATEWAY_HOST: 0.0.0.0
       GATEWAY_PORT: 8000
@@ -13,42 +20,86 @@ services:
       SUMMARY_BASE_URL: http://summary:8003
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s  
 
   ingestion:
     build:
       context: .
       dockerfile: services/ingestion/Dockerfile
+    env_file:
+      - docker.secrets.env
     environment:
       INGESTION_HOST: 0.0.0.0
       INGESTION_PORT: 8001
-      PINECONE_API_KEY: ${PINECONE_API_KEY:-}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      # PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+      # GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      MEMENTO_EMBEDDINGS_MODE: ${MEMENTO_EMBEDDINGS_MODE:-hash}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   query:
     build:
       context: .
       dockerfile: services/query/Dockerfile
+    env_file:
+      - docker.secrets.env
     environment:
       QUERY_HOST: 0.0.0.0
       QUERY_PORT: 8002
-      PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+      # PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+      MEMENTO_EMBEDDINGS_MODE: ${MEMENTO_EMBEDDINGS_MODE:-hash}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   summary:
     build:
       context: .
       dockerfile: services/summary/Dockerfile
+    env_file:
+      - docker.secrets.env
     environment:
       SUMMARY_HOST: 0.0.0.0
       SUMMARY_PORT: 8003
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      # GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   frontend:
-    image: python:3.11-slim
-    working_dir: /app
-    volumes:
-      - .:/app
-    command: streamlit run services/frontend/app.py --server.port 8501 --server.address 0.0.0.0
+    # image: python:3.11-slim
+    # working_dir: /app
+    # volumes:
+    #   - .:/app
+    # command: streamlit run services/frontend/app.py --server.port 8501 --server.address 0.0.0.0
+    build:
+      context: .
+      dockerfile: services/frontend/Dockerfile
+    depends_on:
+      gateway:
+        condition: service_healthy
     environment:
       MEMENTO_API_URL: http://gateway:8000
     ports:
       - "8501:8501"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s  

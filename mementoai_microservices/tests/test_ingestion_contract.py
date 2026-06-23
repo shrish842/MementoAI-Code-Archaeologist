@@ -26,27 +26,25 @@ class IngestionContractTests(unittest.TestCase):
         self.client = TestClient(ingestion_main.app)
 
     def test_rejects_suspicious_repo_url(self) -> None:
-        response = self.client.post("/v1/repositories/index", json={"repo_url": "https://127.0.0.1/private.git"})
+        response = self.client.post("/v1/repositories/index", json={"repo_url": "http://github.com/psf/requests.git"})
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Only public https Git URLs", response.text)
 
-    def test_accepts_valid_repo_url_without_running_background_work(self) -> None:
-        with patch.object(ingestion_main.service, "submit") as submit_mock, patch.object(ingestion_main.service, "run_job") as run_job_mock:
-            submit_mock.return_value = ingestion_main.IndexRepositoryAccepted(
-                job_id="job-1",
-                repo_id="repo-1",
-                status="queued",
-                message="Repository queued for indexing. Repo ID: repo-1",
-            )
+    def test_duplicate_index_request_reuses_existing_job(self) -> None:
+        with patch.object(ingestion_main.service, "run_job") as run_job_mock:
+            first = self.client.post("/v1/repositories/index", json={"repo_url": "https://github.com/psf/requests.git"})
+            second = self.client.post("/v1/repositories/index", json={"repo_url": "https://github.com/psf/requests.git"})
 
-            response = self.client.post("/v1/repositories/index", json={"repo_url": "https://github.com/psf/requests.git"})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
 
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["job_id"], "job-1")
-        self.assertEqual(body["repo_id"], "repo-1")
-        run_job_mock.assert_called_once_with("job-1")
+        first_body = first.json()
+        second_body = second.json()
+        self.assertEqual(first_body["job_id"], second_body["job_id"])
+        self.assertFalse(first_body["deduplicated"])
+        self.assertTrue(second_body["deduplicated"])
+        run_job_mock.assert_called_once_with(first_body["job_id"])
 
 
 if __name__ == "__main__":

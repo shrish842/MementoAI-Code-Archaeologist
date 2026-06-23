@@ -17,6 +17,7 @@ class IndexRepositoryAccepted(BaseModel):
     repo_id: str
     status: JobStatus
     message: str
+    deduplicated: bool = False
 
 
 class JobState(BaseModel):

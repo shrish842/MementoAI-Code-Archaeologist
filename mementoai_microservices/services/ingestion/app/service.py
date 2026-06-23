@@ -26,9 +26,26 @@ class IngestionService:
         self.jobs = InMemoryJobStore()
         self.embedder: EmbeddingProvider = build_embedding_provider(config)
         self.vector_store: VectorStore = build_vector_store(config)
-
+    
     def submit(self, repo_url: str) -> IndexRepositoryAccepted:
         repo_id = str(uuid.uuid5(uuid.NAMESPACE_URL, repo_url))
+        existing_job = self.jobs.get_latest_for_repo(repo_id)
+        if existing_job and existing_job.status in {"queued", "running", "completed"}:
+            log_event(
+                self.logger,
+                "ingestion.job.deduplicated",
+                existing_job_id=existing_job.job_id,
+                repo_id=repo_id,
+                existing_status=existing_job.status,
+            )
+            return IndexRepositoryAccepted(
+                job_id=existing_job.job_id,
+                repo_id=repo_id,
+                status=existing_job.status,
+                message=f"Repository already has an index job with status '{existing_job.status}'. Reusing existing job.",
+                deduplicated=True,
+            )
+
         job_id = str(uuid.uuid4())
         job = JobState(job_id=job_id, repo_id=repo_id, repo_url=repo_url, status="queued")
         self.jobs.create(job)
@@ -38,8 +55,10 @@ class IngestionService:
             repo_id=repo_id,
             status="queued",
             message=f"Repository queued for indexing. Repo ID: {repo_id}",
+            deduplicated=False,
         )
-
+    
+    
     def get_job(self, job_id: str) -> JobState | None:
         return self.jobs.get(job_id)
 
